@@ -22,7 +22,7 @@ import (
 
 const (
 	defaultBaseURL = "https://api.ontiver.com"
-	userAgent      = "ontiver-go/0.1.0"
+	userAgent      = "ontiver-go/0.1.1"
 )
 
 // Client is safe for concurrent use. APIKey and APISecret must only be used in
@@ -33,6 +33,7 @@ type Client struct {
 	BaseURL    string
 	HTTP       *http.Client
 	MaxRetries int
+	Environment string
 
 	Verifications            *VerificationsService
 	Screening                *ScreeningService
@@ -49,6 +50,7 @@ type Client struct {
 	Approvals                *ApprovalsService
 	VerifyWithOntiver        *VerifyWithOntiverService
 	VerificationIntelligence *VerificationIntelligenceService
+	OIDCClients              *OIDCClientsService
 }
 
 // Option customizes a client.
@@ -85,27 +87,50 @@ func WithBaseURL(value string) Option {
 		return nil
 	}
 }
+func WithEnvironment(value string) Option {
+	return func(c *Client) error {
+		environment := strings.ToLower(strings.TrimSpace(value))
+		if environment != "production" && environment != "sandbox" {
+			return errors.New("ontiver: environment must be production or sandbox")
+		}
+		c.Environment = environment
+		return nil
+	}
+}
 
 // New creates an authenticated client.
 func New(apiKey string, options ...Option) (*Client, error) {
 	if strings.TrimSpace(apiKey) == "" {
 		return nil, errors.New("ontiver: API key is required")
 	}
-	c := &Client{APIKey: strings.TrimSpace(apiKey), BaseURL: defaultBaseURL, HTTP: &http.Client{Timeout: 30 * time.Second}, MaxRetries: 2}
+	key := strings.TrimSpace(apiKey)
+	environment := "production"
+	if strings.HasPrefix(key, "sb_") {
+		environment = "sandbox"
+	}
+	c := &Client{APIKey: key, BaseURL: defaultBaseURL, HTTP: &http.Client{Timeout: 30 * time.Second}, MaxRetries: 2, Environment: environment}
 	for _, option := range options {
 		if err := option(c); err != nil {
 			return nil, err
 		}
 	}
+	if (strings.HasPrefix(c.APIKey, "sb_") && c.Environment == "production") ||
+		(strings.HasPrefix(c.APIKey, "prod_") && c.Environment == "sandbox") {
+		return nil, errors.New("ontiver: API key prefix does not match the configured environment")
+	}
 	c.initServices()
 	return c, nil
 }
 
-// NewFromEnv reads ONTIVER_API_KEY, ONTIVER_API_SECRET, and ONTIVER_BASE_URL.
+// NewFromEnv reads ONTIVER_API_KEY, ONTIVER_API_SECRET, ONTIVER_ENVIRONMENT,
+// and ONTIVER_BASE_URL.
 func NewFromEnv(options ...Option) (*Client, error) {
 	baseOptions := []Option{WithAPISecret(os.Getenv("ONTIVER_API_SECRET"))}
 	if value := strings.TrimSpace(os.Getenv("ONTIVER_BASE_URL")); value != "" {
 		baseOptions = append(baseOptions, WithBaseURL(value))
+	}
+	if value := strings.TrimSpace(os.Getenv("ONTIVER_ENVIRONMENT")); value != "" {
+		baseOptions = append(baseOptions, WithEnvironment(value))
 	}
 	return New(os.Getenv("ONTIVER_API_KEY"), append(baseOptions, options...)...)
 }
@@ -126,6 +151,7 @@ func (c *Client) initServices() {
 	c.Approvals = &ApprovalsService{client: c}
 	c.VerifyWithOntiver = &VerifyWithOntiverService{client: c}
 	c.VerificationIntelligence = &VerificationIntelligenceService{client: c}
+	c.OIDCClients = &OIDCClientsService{client: c}
 }
 
 // RequestOptions controls an API request.

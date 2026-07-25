@@ -198,6 +198,21 @@ func (s *APISettingsService) Update(ctx context.Context, p JSON, o SecurityOptio
 	return call[JSON](ctx, s.client, http.MethodPatch, "/api/settings", secure(p, o))
 }
 
+type OIDCClientsService struct{ client *Client }
+
+func (s *OIDCClientsService) List(ctx context.Context) (JSON, error) {
+	return call[JSON](ctx, s.client, http.MethodGet, "/oidc/clients", read(SecurityOptions{}))
+}
+func (s *OIDCClientsService) Create(ctx context.Context, payload JSON, options SecurityOptions) (JSON, error) {
+	return call[JSON](ctx, s.client, http.MethodPost, "/oidc/clients", secure(payload, withNonce(options)))
+}
+func (s *OIDCClientsService) Update(ctx context.Context, clientID string, payload JSON, options SecurityOptions) (JSON, error) {
+	return call[JSON](ctx, s.client, http.MethodPatch, "/oidc/clients/"+url.PathEscape(clientID), secure(payload, withNonce(options)))
+}
+func (s *OIDCClientsService) Disable(ctx context.Context, clientID string, options SecurityOptions) (JSON, error) {
+	return call[JSON](ctx, s.client, http.MethodDelete, "/oidc/clients/"+url.PathEscape(clientID), secure(nil, withNonce(options)))
+}
+
 type DiagnosticsService struct{ client *Client }
 
 func (s *DiagnosticsService) List(ctx context.Context, q url.Values) (JSON, error) {
