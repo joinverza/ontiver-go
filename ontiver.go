@@ -28,11 +28,11 @@ const (
 // Client is safe for concurrent use. APIKey and APISecret must only be used in
 // trusted server-side code.
 type Client struct {
-	APIKey     string
-	APISecret  string
-	BaseURL    string
-	HTTP       *http.Client
-	MaxRetries int
+	APIKey      string
+	APISecret   string
+	BaseURL     string
+	HTTP        *http.Client
+	MaxRetries  int
 	Environment string
 
 	Verifications            *VerificationsService
