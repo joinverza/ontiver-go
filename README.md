@@ -1,6 +1,6 @@
 # Ontiver Go SDK
 
-Official server-side SDK for Go 1.22 and later. It covers identity verification, SmileID-backed AML, screening, proofs, disclosure requests, registered applications, webhooks, diagnostics, approvals, API security settings, and Verify with Ontiver sessions.
+Official server-side SDK for Go 1.22 and later. It covers identity verification, enterprise CSV/XLSX identity batches, SmileID-backed AML, screening, proofs, disclosure requests, registered applications, webhooks, diagnostics, approvals, API security settings, and Verify with Ontiver sessions.
 
 ```bash
 go get github.com/joinverza/ontiver-go@latest

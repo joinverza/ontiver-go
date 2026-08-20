@@ -5,8 +5,10 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -65,5 +67,86 @@ func TestAPIErrorAndWebhook(t *testing.T) {
 func TestRejectsInsecureRemoteBaseURL(t *testing.T) {
 	if _, err := New("key", WithBaseURL("http://api.example.com")); err == nil {
 		t.Fatal("expected HTTPS validation error")
+	}
+}
+
+func TestIdentityBatchFileValidation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/banking/enterprise/identity-batches/validate" {
+			t.Fatalf("path = %q", r.URL.Path)
+		}
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Fatal(err)
+		}
+		if got := r.FormValue("applicationId"); got != "app_123" {
+			t.Fatalf("applicationId = %q", got)
+		}
+		if got := r.FormValue("requestedFields"); got != `["verificationStatus"]` {
+			t.Fatalf("requestedFields = %q", got)
+		}
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer file.Close()
+		raw, err := io.ReadAll(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if header.Filename != "users.csv" || string(raw) != "externalUserId,email\nC-1,user@example.com\n" {
+			t.Fatalf("file = %q %#v", header.Filename, string(raw))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":{"batchId":"idb_123","status":"validated"}}`))
+	}))
+	defer server.Close()
+	client, err := New("sb_test", WithBaseURL(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.IdentityBatches.ValidateFile(
+		context.Background(),
+		"users.csv",
+		"text/csv",
+		strings.NewReader("externalUserId,email\nC-1,user@example.com\n"),
+		IdentityBatchFileOptions{
+			ApplicationID:        "app_123",
+			Mode:                 "fresh_verification",
+			VerificationType:     "nin",
+			Purpose:              "Employee verification",
+			RequestedFields:      []string{"verificationStatus"},
+			NotificationChannels: []string{"email"},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result["batchId"] != "idb_123" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestIdentityBatchErrorReportDownload(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/banking/enterprise/identity-batches/idb_123/errors.csv" {
+			t.Fatalf("path = %q", r.URL.Path)
+		}
+		if got := r.Header.Get("Accept"); got != "text/csv" {
+			t.Fatalf("Accept = %q", got)
+		}
+		w.Header().Set("Content-Type", "text/csv")
+		_, _ = w.Write([]byte("rowNumber,code,message\n2,required,External user ID is required\n"))
+	}))
+	defer server.Close()
+	client, err := New("sb_test", WithBaseURL(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := client.IdentityBatches.DownloadErrors(context.Background(), "idb_123", SecurityOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(report), "External user ID is required") {
+		t.Fatalf("report = %q", string(report))
 	}
 }
