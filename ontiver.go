@@ -45,6 +45,7 @@ type Client struct {
 	APISettings              *APISettingsService
 	Diagnostics              *DiagnosticsService
 	EnterpriseApplications   *EnterpriseApplicationsService
+	IdentityBatches          *IdentityBatchesService
 	DisclosureRequests       *DisclosureRequestsService
 	Compliance               *ComplianceService
 	Approvals                *ApprovalsService
@@ -146,6 +147,7 @@ func (c *Client) initServices() {
 	c.APISettings = &APISettingsService{client: c}
 	c.Diagnostics = &DiagnosticsService{client: c}
 	c.EnterpriseApplications = &EnterpriseApplicationsService{client: c}
+	c.IdentityBatches = &IdentityBatchesService{client: c}
 	c.DisclosureRequests = &DisclosureRequestsService{client: c}
 	c.Compliance = &ComplianceService{client: c}
 	c.Approvals = &ApprovalsService{client: c}
