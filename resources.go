@@ -279,6 +279,170 @@ func (s *EnterpriseApplicationsService) ListKYCImports(ctx context.Context, id s
 	return call[JSON](ctx, s.client, http.MethodGet, "/enterprise/applications/"+url.PathEscape(id)+"/kyc-imports", read(SecurityOptions{}))
 }
 
+// IdentityBatchesService manages enterprise CSV/XLSX/JSON identity onboarding.
+// Validation creates a preview without starting verification work.
+type IdentityBatchesService struct{ client *Client }
+
+// IdentityBatchFileOptions configures a CSV, XLSX, XLSM, or JSON batch upload.
+// RequestedFields and NotificationChannels are encoded as JSON arrays in the
+// multipart request, matching the public API contract.
+type IdentityBatchFileOptions struct {
+	ApplicationID        string
+	Mode                 string
+	VerificationType     string
+	Purpose              string
+	RequestedFields      []string
+	NotificationChannels []string
+	CallbackURL          string
+	ReturnURL            string
+	Security             SecurityOptions
+}
+
+func (s *IdentityBatchesService) ValidateFile(ctx context.Context, filename, contentType string, file io.Reader, value IdentityBatchFileOptions) (JSON, error) {
+	if file == nil {
+		return nil, fmt.Errorf("ontiver: identity batch file is required")
+	}
+	if strings.TrimSpace(filename) == "" {
+		return nil, fmt.Errorf("ontiver: identity batch filename is required")
+	}
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	fields := map[string]string{
+		"applicationId":    value.ApplicationID,
+		"mode":             value.Mode,
+		"verificationType": value.VerificationType,
+		"purpose":          value.Purpose,
+		"callbackUrl":      value.CallbackURL,
+		"returnUrl":        value.ReturnURL,
+	}
+	if len(value.RequestedFields) > 0 {
+		raw, err := json.Marshal(value.RequestedFields)
+		if err != nil {
+			return nil, err
+		}
+		fields["requestedFields"] = string(raw)
+	}
+	if len(value.NotificationChannels) > 0 {
+		raw, err := json.Marshal(value.NotificationChannels)
+		if err != nil {
+			return nil, err
+		}
+		fields["notificationChannels"] = string(raw)
+	}
+	for name, fieldValue := range fields {
+		if strings.TrimSpace(fieldValue) != "" {
+			if err := form.WriteField(name, fieldValue); err != nil {
+				return nil, err
+			}
+		}
+	}
+	header := make(textproto.MIMEHeader)
+	safeFilename := strings.NewReplacer("\\", "\\\\", "\"", "\\\"", "\r", "_", "\n", "_").Replace(filename)
+	header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename="%s"`, safeFilename))
+	header.Set("Content-Type", contentType)
+	part, err := form.CreatePart(header)
+	if err != nil {
+		return nil, err
+	}
+	if _, err = io.Copy(part, file); err != nil {
+		return nil, err
+	}
+	if err = form.Close(); err != nil {
+		return nil, err
+	}
+	options := secure(nil, value.Security)
+	options.RawBody = body.Bytes()
+	options.ContentType = form.FormDataContentType()
+	return call[JSON](ctx, s.client, http.MethodPost, "/enterprise/identity-batches/validate", options)
+}
+
+func (s *IdentityBatchesService) ValidateJSON(ctx context.Context, payload JSON, options SecurityOptions) (JSON, error) {
+	return call[JSON](ctx, s.client, http.MethodPost, "/enterprise/identity-batches/validate-json", secure(payload, options))
+}
+func (s *IdentityBatchesService) List(ctx context.Context, applicationID string) (JSON, error) {
+	options := read(SecurityOptions{})
+	options.Query = url.Values{}
+	if strings.TrimSpace(applicationID) != "" {
+		options.Query.Set("applicationId", applicationID)
+	}
+	return call[JSON](ctx, s.client, http.MethodGet, "/enterprise/identity-batches", options)
+}
+func (s *IdentityBatchesService) Get(ctx context.Context, batchID string) (JSON, error) {
+	return call[JSON](ctx, s.client, http.MethodGet, "/enterprise/identity-batches/"+url.PathEscape(batchID), read(SecurityOptions{}))
+}
+func (s *IdentityBatchesService) Results(ctx context.Context, batchID, status string, limit, offset int) (JSON, error) {
+	options := read(SecurityOptions{})
+	options.Query = url.Values{}
+	if strings.TrimSpace(status) != "" {
+		options.Query.Set("status", status)
+	}
+	if limit > 0 {
+		options.Query.Set("limit", strconv.Itoa(limit))
+	}
+	if offset > 0 {
+		options.Query.Set("offset", strconv.Itoa(offset))
+	}
+	return call[JSON](ctx, s.client, http.MethodGet, "/enterprise/identity-batches/"+url.PathEscape(batchID)+"/results", options)
+}
+func (s *IdentityBatchesService) DownloadErrors(ctx context.Context, batchID string, security SecurityOptions) ([]byte, error) {
+	options := read(security)
+	requestURL, err := s.client.resolveURL("/enterprise/identity-batches/"+url.PathEscape(batchID)+"/errors.csv", nil)
+	if err != nil {
+		return nil, err
+	}
+	attempts := s.client.MaxRetries + 1
+	for attempt := 0; attempt < attempts; attempt++ {
+		req, requestErr := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+		if requestErr != nil {
+			return nil, requestErr
+		}
+		s.client.setHeaders(req, options)
+		req.Header.Set("Accept", "text/csv")
+		response, requestErr := s.client.HTTP.Do(req)
+		if requestErr != nil {
+			if attempt+1 < attempts {
+				if waitErr := waitRetry(ctx, attempt, 0); waitErr != nil {
+					return nil, waitErr
+				}
+				continue
+			}
+			return nil, fmt.Errorf("ontiver: network request failed: %w", requestErr)
+		}
+		raw, readErr := io.ReadAll(io.LimitReader(response.Body, 25<<20))
+		response.Body.Close()
+		if readErr != nil {
+			return nil, readErr
+		}
+		if retryable(response.StatusCode) && attempt+1 < attempts {
+			if waitErr := waitRetry(ctx, attempt, retryAfter(response.Header)); waitErr != nil {
+				return nil, waitErr
+			}
+			continue
+		}
+		if response.StatusCode < 200 || response.StatusCode >= 300 {
+			return nil, decodeAPIError(response, raw)
+		}
+		return raw, nil
+	}
+	return nil, fmt.Errorf("ontiver: request failed")
+}
+func (s *IdentityBatchesService) Start(ctx context.Context, batchID string, options SecurityOptions) (JSON, error) {
+	return call[JSON](ctx, s.client, http.MethodPost, "/enterprise/identity-batches/"+url.PathEscape(batchID)+"/start", secure(nil, options))
+}
+func (s *IdentityBatchesService) Retry(ctx context.Context, batchID string, options SecurityOptions) (JSON, error) {
+	return call[JSON](ctx, s.client, http.MethodPost, "/enterprise/identity-batches/"+url.PathEscape(batchID)+"/retry", secure(nil, options))
+}
+func (s *IdentityBatchesService) ResendInvitation(ctx context.Context, batchID, itemID string, options SecurityOptions) (JSON, error) {
+	path := "/enterprise/identity-batches/" + url.PathEscape(batchID) + "/items/" + url.PathEscape(itemID) + "/resend"
+	return call[JSON](ctx, s.client, http.MethodPost, path, secure(nil, options))
+}
+func (s *IdentityBatchesService) Cancel(ctx context.Context, batchID string, options SecurityOptions) (JSON, error) {
+	return call[JSON](ctx, s.client, http.MethodPost, "/enterprise/identity-batches/"+url.PathEscape(batchID)+"/cancel", secure(nil, options))
+}
+
 type DisclosureRequestsService struct{ client *Client }
 
 func (s *DisclosureRequestsService) List(ctx context.Context, q url.Values) (JSON, error) {
