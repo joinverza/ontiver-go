@@ -12,6 +12,59 @@ import (
 	"testing"
 )
 
+func TestPhoneVerificationPublicV1Contract(t *testing.T) {
+	type observed struct {
+		method, path, idempotency, body string
+	}
+	seen := make([]observed, 0, 4)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		seen = append(seen, observed{r.Method, r.URL.Path, r.Header.Get("Idempotency-Key"), string(raw)})
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":{"verificationId":"phone_123","status":"otp_sent","channel":"sms","expiresAt":"2026-09-09T10:10:00Z","resendAfter":"2026-09-09T10:01:00Z","attemptsRemaining":5,"verifiedAt":null,"phoneLast4":"5678"}}`))
+	}))
+	defer server.Close()
+
+	client, err := New("sb_test", WithBaseURL(server.URL), WithMaxRetries(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	created, err := client.PhoneVerifications.Create(ctx, PhoneVerificationRequest{
+		Phone: "+2348012345678", Country: "NG", UserID: "user_123", DeviceID: "device_123", WhatsAppConsent: true,
+	}, SecurityOptions{IdempotencyKey: "phone-create-123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = client.PhoneVerifications.Get(ctx, "phone_123")
+	_, _ = client.PhoneVerifications.Verify(ctx, "phone_123", "123456", SecurityOptions{IdempotencyKey: "phone-verify-123"})
+	_, _ = client.PhoneVerifications.Resend(ctx, "phone_123", SecurityOptions{IdempotencyKey: "phone-resend-123"})
+
+	if created.VerificationID != "phone_123" {
+		t.Fatalf("created = %#v", created)
+	}
+	wantPaths := []string{
+		"/v1/verifications/phone",
+		"/v1/verifications/phone/phone_123",
+		"/v1/verifications/phone/phone_123/verify",
+		"/v1/verifications/phone/phone_123/resend",
+	}
+	if len(seen) != len(wantPaths) {
+		t.Fatalf("requests = %#v", seen)
+	}
+	for index, want := range wantPaths {
+		if seen[index].path != want {
+			t.Fatalf("request %d path = %q", index, seen[index].path)
+		}
+	}
+	if !strings.Contains(seen[0].body, `"purpose":"signup"`) || !strings.Contains(seen[0].body, `"whatsappConsent":true`) {
+		t.Fatalf("create body = %s", seen[0].body)
+	}
+	if seen[0].idempotency != "phone-create-123" || seen[2].idempotency != "phone-verify-123" || seen[3].idempotency != "phone-resend-123" {
+		t.Fatalf("idempotency headers = %#v", seen)
+	}
+}
+
 func TestAuthenticationEnvelopeAndResource(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Authorization"); got != "Bearer sb_test" {

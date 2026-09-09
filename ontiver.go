@@ -22,7 +22,7 @@ import (
 
 const (
 	defaultBaseURL = "https://api.ontiver.com"
-	userAgent      = "ontiver-go/0.1.1"
+	userAgent      = "ontiver-go/0.1.2"
 )
 
 // Client is safe for concurrent use. APIKey and APISecret must only be used in
@@ -36,6 +36,7 @@ type Client struct {
 	Environment string
 
 	Verifications            *VerificationsService
+	PhoneVerifications       *PhoneVerificationsService
 	Screening                *ScreeningService
 	Proofs                   *ProofsService
 	Webhooks                 *WebhooksService
@@ -138,6 +139,7 @@ func NewFromEnv(options ...Option) (*Client, error) {
 
 func (c *Client) initServices() {
 	c.Verifications = &VerificationsService{client: c}
+	c.PhoneVerifications = &PhoneVerificationsService{client: c}
 	c.Screening = &ScreeningService{client: c}
 	c.Proofs = &ProofsService{client: c}
 	c.Webhooks = &WebhooksService{client: c}
@@ -313,7 +315,7 @@ func (c *Client) resolveURL(path string, query url.Values) (string, error) {
 	if !strings.HasPrefix(path, "/") {
 		return "", errors.New("ontiver: API path must start with '/'")
 	}
-	if !strings.HasPrefix(path, "/api/") {
+	if !strings.HasPrefix(path, "/api/") && !strings.HasPrefix(path, "/v1/") {
 		path = "/api/v1/banking" + path
 	}
 	u, err := url.Parse(strings.TrimRight(c.BaseURL, "/") + path)

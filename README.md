@@ -28,6 +28,20 @@ func main() {
     }, ontiver.SecurityOptions{IdempotencyKey: "verify-cust-123"})
     if err != nil { log.Fatal(err) }
     log.Println(result["verificationId"])
+
+    phone, err := client.PhoneVerifications.Create(context.Background(), ontiver.PhoneVerificationRequest{
+        Phone: "+2348012345678",
+        Country: "NG",
+        Purpose: ontiver.PhoneVerificationSignup,
+        UserID: "user_123",
+    }, ontiver.SecurityOptions{IdempotencyKey: "phone-signup-user-123"})
+    if err != nil { log.Fatal(err) }
+
+    verified, err := client.PhoneVerifications.Verify(context.Background(), phone.VerificationID, "123456", ontiver.SecurityOptions{
+        IdempotencyKey: "phone-confirm-user-123",
+    })
+    if err != nil { log.Fatal(err) }
+    log.Println(verified.Status)
 }
 ```
 

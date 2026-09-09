@@ -46,6 +46,74 @@ func (s *VerificationsService) Get(ctx context.Context, id string) (JSON, error)
 	return call[JSON](ctx, s.client, http.MethodGet, "/kyc/individual/"+url.PathEscape(id), read(SecurityOptions{}))
 }
 
+type PhoneVerificationPurpose string
+type PhoneVerificationState string
+type PhoneVerificationChannel string
+
+const (
+	PhoneVerificationSignup          PhoneVerificationPurpose = "signup"
+	PhoneVerificationLogin           PhoneVerificationPurpose = "login"
+	PhoneVerificationAccountRecovery PhoneVerificationPurpose = "account_recovery"
+	PhoneVerificationPhoneChange     PhoneVerificationPurpose = "phone_change"
+)
+
+const (
+	PhoneVerificationPending   PhoneVerificationState = "pending"
+	PhoneVerificationOTPSent   PhoneVerificationState = "otp_sent"
+	PhoneVerificationDelivered PhoneVerificationState = "delivered"
+	PhoneVerificationVerified  PhoneVerificationState = "verified"
+	PhoneVerificationFailed    PhoneVerificationState = "failed"
+	PhoneVerificationExpired   PhoneVerificationState = "expired"
+	PhoneVerificationLocked    PhoneVerificationState = "locked"
+	PhoneVerificationCancelled PhoneVerificationState = "cancelled"
+)
+
+const (
+	PhoneVerificationSMS      PhoneVerificationChannel = "sms"
+	PhoneVerificationWhatsApp PhoneVerificationChannel = "whatsapp"
+)
+
+type PhoneVerificationRequest struct {
+	Phone           string                   `json:"phone"`
+	Country         string                   `json:"country,omitempty"`
+	Purpose         PhoneVerificationPurpose `json:"purpose,omitempty"`
+	UserID          string                   `json:"userId,omitempty"`
+	DeviceID        string                   `json:"deviceId,omitempty"`
+	WhatsAppConsent bool                     `json:"whatsappConsent"`
+}
+
+type PhoneVerificationStatus struct {
+	VerificationID    string                   `json:"verificationId"`
+	Status            PhoneVerificationState   `json:"status"`
+	Channel           PhoneVerificationChannel `json:"channel"`
+	ExpiresAt         string                   `json:"expiresAt"`
+	ResendAfter       string                   `json:"resendAfter"`
+	AttemptsRemaining int                      `json:"attemptsRemaining"`
+	VerifiedAt        *string                  `json:"verifiedAt"`
+	PhoneLast4        string                   `json:"phoneLast4"`
+}
+
+type PhoneVerificationsService struct{ client *Client }
+
+func (s *PhoneVerificationsService) Create(ctx context.Context, payload PhoneVerificationRequest, options SecurityOptions) (PhoneVerificationStatus, error) {
+	if payload.Purpose == "" {
+		payload.Purpose = PhoneVerificationSignup
+	}
+	return call[PhoneVerificationStatus](ctx, s.client, http.MethodPost, "/v1/verifications/phone", secure(payload, options))
+}
+
+func (s *PhoneVerificationsService) Get(ctx context.Context, id string) (PhoneVerificationStatus, error) {
+	return call[PhoneVerificationStatus](ctx, s.client, http.MethodGet, "/v1/verifications/phone/"+url.PathEscape(id), read(SecurityOptions{}))
+}
+
+func (s *PhoneVerificationsService) Verify(ctx context.Context, id, code string, options SecurityOptions) (PhoneVerificationStatus, error) {
+	return call[PhoneVerificationStatus](ctx, s.client, http.MethodPost, "/v1/verifications/phone/"+url.PathEscape(id)+"/verify", secure(JSON{"code": code}, options))
+}
+
+func (s *PhoneVerificationsService) Resend(ctx context.Context, id string, options SecurityOptions) (PhoneVerificationStatus, error) {
+	return call[PhoneVerificationStatus](ctx, s.client, http.MethodPost, "/v1/verifications/phone/"+url.PathEscape(id)+"/resend", secure(nil, options))
+}
+
 type ScreeningService struct{ client *Client }
 
 func (s *ScreeningService) PEP(ctx context.Context, payload JSON, options SecurityOptions) (JSON, error) {
