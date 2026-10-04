@@ -37,6 +37,7 @@ type Client struct {
 
 	Verifications            *VerificationsService
 	PhoneVerifications       *PhoneVerificationsService
+	Addresses                *AddressesService
 	Screening                *ScreeningService
 	Proofs                   *ProofsService
 	Webhooks                 *WebhooksService
@@ -140,6 +141,7 @@ func NewFromEnv(options ...Option) (*Client, error) {
 func (c *Client) initServices() {
 	c.Verifications = &VerificationsService{client: c}
 	c.PhoneVerifications = &PhoneVerificationsService{client: c}
+	c.Addresses = &AddressesService{client: c}
 	c.Screening = &ScreeningService{client: c}
 	c.Proofs = &ProofsService{client: c}
 	c.Webhooks = &WebhooksService{client: c}
