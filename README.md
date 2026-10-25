@@ -54,3 +54,23 @@ ONTIVER_BASE_URL=https://api.ontiver.com
 ```
 
 The client sends bearer authentication, supports idempotent retries, redacts secrets from API errors, rejects non-local HTTP base URLs, verifies webhook HMAC signatures, and signs app-bound Verify with Ontiver requests. Never embed these credentials in browser or mobile applications.
+
+## Verification Requests
+
+Ask a person to verify with consent; Ontiver emails their link and reminds them before the deadline. A person at your business makes the final decision.
+
+```go
+request, err := client.Workflows.Create(ctx, ontiver.CreateWorkflowCase{
+    TemplateKey:   "ng-financial-onboarding",
+    Purpose:       "Loan application LOAN-2026-0193",
+    SubjectEmail:  "ada@example.com",
+    RespondByDays: 14,
+})
+if err != nil { log.Fatal(err) }
+
+caseID := request["caseId"].(string)
+_, err = client.Workflows.Review(ctx, caseID, "approved", "Identity and address confirmed", "low")
+pdf, err := client.Workflows.RecordPDF(ctx, caseID)
+```
+
+Also available: `CreateBulk`, `CancelBatch`, `ResendUnopened`, `ImportCustomers`, `SendCustomerWave`, `CustomerStatus` and `ExportCSV`.
