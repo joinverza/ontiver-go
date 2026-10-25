@@ -54,6 +54,7 @@ type Client struct {
 	VerifyWithOntiver        *VerifyWithOntiverService
 	VerificationIntelligence *VerificationIntelligenceService
 	OIDCClients              *OIDCClientsService
+	Workflows                *WorkflowsService
 }
 
 // Option customizes a client.
@@ -158,6 +159,7 @@ func (c *Client) initServices() {
 	c.VerifyWithOntiver = &VerifyWithOntiverService{client: c}
 	c.VerificationIntelligence = &VerificationIntelligenceService{client: c}
 	c.OIDCClients = &OIDCClientsService{client: c}
+	c.Workflows = &WorkflowsService{client: c}
 }
 
 // RequestOptions controls an API request.
