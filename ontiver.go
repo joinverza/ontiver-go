@@ -22,7 +22,7 @@ import (
 
 const (
 	defaultBaseURL = "https://api.ontiver.com"
-	userAgent      = "ontiver-go/0.1.2"
+	userAgent      = "ontiver-go/0.1.3"
 )
 
 // Client is safe for concurrent use. APIKey and APISecret must only be used in
@@ -443,13 +443,65 @@ func redact(value string) string {
 	return value
 }
 
-// VerifyWebhook verifies an HMAC-SHA256 webhook signature over the raw body.
+// DefaultWebhookTolerance is how far a delivery's signed timestamp may be from now before it is
+// refused as a possible replay.
+const DefaultWebhookTolerance = 5 * time.Minute
+
+// VerifyWebhook checks the X-Ontiver-Signature header against the raw request body, using the
+// current time and DefaultWebhookTolerance.
+//
+// Deliveries are signed "t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<raw body>">" with the
+// endpoint's signing secret. The older "sha256=<hex HMAC of the raw body>" form is also accepted.
 func VerifyWebhook(payload []byte, signature, secret string) bool {
+	return VerifyWebhookAt(payload, signature, secret, time.Now(), DefaultWebhookTolerance)
+}
+
+// VerifyWebhookAt is VerifyWebhook with an explicit current time and tolerance (0 turns the
+// timestamp check off).
+func VerifyWebhookAt(payload []byte, signature, secret string, now time.Time, tolerance time.Duration) bool {
 	if secret == "" {
 		return false
 	}
-	signature = strings.TrimPrefix(strings.TrimSpace(signature), "sha256=")
-	provided, err := hex.DecodeString(signature)
+	header := strings.TrimSpace(signature)
+	if strings.Contains(header, "v1=") {
+		timestamp := ""
+		var candidates []string
+		for _, part := range strings.Split(header, ",") {
+			key, value, found := strings.Cut(strings.TrimSpace(part), "=")
+			if !found {
+				continue
+			}
+			switch key {
+			case "t":
+				timestamp = strings.TrimSpace(value)
+			case "v1":
+				if v := strings.TrimSpace(value); v != "" {
+					candidates = append(candidates, v)
+				}
+			}
+		}
+		seconds, err := strconv.ParseInt(timestamp, 10, 64)
+		if err != nil || len(candidates) == 0 {
+			return false
+		}
+		if tolerance > 0 {
+			delta := now.Sub(time.Unix(seconds, 0))
+			if delta > tolerance || delta < -tolerance {
+				return false
+			}
+		}
+		mac := hmac.New(sha256.New, []byte(secret))
+		_, _ = mac.Write([]byte(timestamp + "."))
+		_, _ = mac.Write(payload)
+		expected := mac.Sum(nil)
+		for _, candidate := range candidates {
+			if provided, err := hex.DecodeString(candidate); err == nil && hmac.Equal(expected, provided) {
+				return true
+			}
+		}
+		return false
+	}
+	provided, err := hex.DecodeString(strings.TrimPrefix(header, "sha256="))
 	if err != nil {
 		return false
 	}

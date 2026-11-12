@@ -8,8 +8,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestPhoneVerificationPublicV1Contract(t *testing.T) {
@@ -201,5 +203,39 @@ func TestIdentityBatchErrorReportDownload(t *testing.T) {
 	}
 	if !strings.Contains(string(report), "External user ID is required") {
 		t.Fatalf("report = %q", string(report))
+	}
+}
+
+func TestVerifyWebhookSignedDelivery(t *testing.T) {
+	// Exactly what the API sends: t=<seconds>,v1=<HMAC-SHA256 of "<t>.<raw body>">.
+	payload := []byte(`{"event":"verification.completed","data":{"verificationId":"ver_1"}}`)
+	secret := "whsec_test"
+	const ts = int64(1800000000)
+	sign := func(body []byte, stamp int64) string {
+		mac := hmac.New(sha256.New, []byte(secret))
+		mac.Write([]byte(strconv.FormatInt(stamp, 10) + "."))
+		mac.Write(body)
+		return hex.EncodeToString(mac.Sum(nil))
+	}
+	header := "t=" + strconv.FormatInt(ts, 10) + ",v1=" + sign(payload, ts)
+	at := time.Unix(ts+30, 0)
+	if !VerifyWebhookAt(payload, header, secret, at, DefaultWebhookTolerance) {
+		t.Fatal("a valid signed delivery was refused")
+	}
+	if VerifyWebhookAt(payload, header, secret, time.Unix(ts+301, 0), DefaultWebhookTolerance) {
+		t.Fatal("an old delivery was accepted")
+	}
+	if !VerifyWebhookAt(payload, header, secret, time.Unix(ts+9999, 0), 0) {
+		t.Fatal("tolerance 0 should skip the timestamp check")
+	}
+	if VerifyWebhookAt(append(payload, ' '), header, secret, at, DefaultWebhookTolerance) {
+		t.Fatal("a changed body was accepted")
+	}
+	if VerifyWebhookAt(payload, header, "whsec_other", at, DefaultWebhookTolerance) {
+		t.Fatal("the wrong secret was accepted")
+	}
+	rotating := "t=" + strconv.FormatInt(ts, 10) + ",v1=" + strings.Repeat("0", 64) + ",v1=" + sign(payload, ts)
+	if !VerifyWebhookAt(payload, rotating, secret, at, DefaultWebhookTolerance) {
+		t.Fatal("any matching v1 should pass")
 	}
 }
