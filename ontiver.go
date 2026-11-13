@@ -22,7 +22,7 @@ import (
 
 const (
 	defaultBaseURL = "https://api.ontiver.com"
-	userAgent      = "ontiver-go/0.1.3"
+	userAgent      = "ontiver-go/0.1.4"
 )
 
 // Client is safe for concurrent use. APIKey and APISecret must only be used in
